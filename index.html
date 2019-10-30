@@ -23,7 +23,7 @@
           //   });
           // };
 
-          const dsp = new Module.WebrtcAuidoProcessing(true, true);
+          const dsp = new Module.WebrtcAuidoProcessing(true, false);
 
           var delay = -1;
 
@@ -104,9 +104,17 @@
             };
           };
 
-          navigator.mediaDevices
-            .getUserMedia({ audio: true, video: false })
-            .then(handleSuccess);
+          navigator.permissions.query({name:'microphone'}).then(function(result) {
+            if (result.state == 'granted') {
+              navigator.mediaDevices
+                .getUserMedia({ audio: true, video: false })
+                .then(handleSuccess);
+            } else if (result.state == 'prompt') {
+
+            } else if (result.state == 'denied') {
+              alert('need microphone access');
+            }
+          });
         };
       </script>     
   </head>
