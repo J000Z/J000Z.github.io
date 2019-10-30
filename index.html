@@ -1,0 +1,118 @@
+<html>
+  <head>
+    <script src="index.js"></script> 
+    <script>
+      Module.onRuntimeInitialized = () => {
+          // const handleSuccess = function(stream) {
+          //   const context = new AudioContext();
+          //   context.audioWorklet.addModule('dsp-processor.js').then(() => {
+          //     const dspNode = new AudioWorkletNode(context, 'dsp-processor');
+          //     const source = context.createMediaStreamSource(stream);
+          //     source.connect(dspNode);
+          //     const dest = context.createMediaStreamDestination();
+          //     dspNode.connect(dest);
+
+          //     // source.connect(dest);
+
+          //     const player = document.getElementById('player');
+          //     if (window.URL) {
+          //       player.srcObject = dest.stream;
+          //     } else {
+          //       player.src = dest.stream;
+          //     }
+          //   });
+          // };
+
+          const dsp = new Module.WebrtcAuidoProcessing(true, false);
+
+          var delay = -1;
+
+          const handleSuccess = stream => {
+            const context = new AudioContext();
+            const source = context.createMediaStreamSource(stream);
+            const processor = context.createScriptProcessor(512, 1, 1);
+            const dest = context.createMediaStreamDestination();
+
+            source.connect(processor);
+            processor.connect(dest);
+            
+            const player = document.getElementById('player');
+            const dsp_checkbox = document.getElementById('dsp_checkbox');
+
+            if (window.URL) {
+              player.srcObject = dest.stream;
+            } else {
+              player.src = dest.stream;
+            }
+
+            const dsp_frame_size = 480;
+            const v = new Module.VectorFloat();
+            v.resize(dsp_frame_size, 1);
+
+            const buffer = {input: [], output: [], ref: []};
+
+            processor.onaudioprocess = e => {
+              let sampleRate = e.inputBuffer.sampleRate;
+              let inputBuffer = e.inputBuffer.getChannelData(0);
+              let outputBuffer = e.outputBuffer.getChannelData(0);
+
+              // copy to global buffer
+              for (var sample = 0; sample < inputBuffer.length; sample++) {
+                if (delay < 0) {
+                  buffer.input.push(inputBuffer[sample]);
+                }
+                buffer.ref.push(inputBuffer[sample]);
+              }
+
+              // do dsp if there is enough data
+              while (buffer.input.length >= dsp_frame_size) {
+                // copy to tmp
+                for (var sample = 0; sample < dsp_frame_size; sample++) {
+                  v.set(sample, buffer.ref.shift());
+                }
+                dsp.setDelayMs(0);
+                dsp.analyzeReverseStream(sampleRate, v);
+                for (var sample = 0; sample < dsp_frame_size; sample++) {
+                  v.set(sample, buffer.input.shift());
+                }
+                let result = dsp.processStream(sampleRate, v);
+                // copy to global buffer
+                for (var sample = 0; sample < result.size(); sample++) {
+                  buffer.output.push(result.get(sample));
+                }
+                // free memory
+                result.delete();
+              }
+
+              // write to output buffer
+              if (!dsp_checkbox.checked) {
+                for (var sample = 0; sample < inputBuffer.length; sample++) {
+                  outputBuffer[sample] = inputBuffer[sample];
+                }
+              } else if (buffer.output.length >= outputBuffer.length) {
+                for (var sample = 0; sample < outputBuffer.length; sample++) {
+                  outputBuffer[sample] = buffer.output.shift();
+                }
+              } else {
+                console.warn(`waiting ${buffer.output.length}`);
+              }
+
+              delay -= 1;
+
+              // console.log(`${buffer.input.length} ${buffer.output.length}`)
+
+            };
+          };
+
+          navigator.mediaDevices
+            .getUserMedia({ audio: true, video: false })
+            .then(handleSuccess);
+        };
+      </script>     
+  </head>
+  <body>
+    <audio id="player" controls></audio>
+    <br>
+    <input type="checkbox" id="dsp_checkbox" checked>DSP<br>
+  </body>
+</html>
